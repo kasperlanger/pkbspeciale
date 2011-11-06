@@ -1,0 +1,40 @@
+<html>
+<head>
+  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js" type="text/javascript"></script>
+  <script type="text/javascript" src="highcharts/highcharts.js"></script>
+  <script type="text/javascript" src="highcharts/themes/gray.js"></script>
+  <script type="text/javascript" src="sammy/sammy-0.7.0.js"></script>
+  <script type="text/javascript" src="jquery.query/jquery.query-2.1.7.js"></script>
+  <style type="text/css">
+.chart {
+  width: 49%;
+  height: 450px;
+  float: left;
+  margin: 2px;
+}
+  </style>
+</head>
+<body>
+  <div style="display: table-cell">
+    <form method="GET">
+      <div>
+        <select name="primary"><option>betaceller301011</option><option>INS1301011</option></select>
+        <select name="secondary"><option>betaceller301011</option><option>INS1301011</option> </select>
+      </div>
+        
+      <div>115 <input type="text" name="min115" value="-100"/> <input type="text" name="max115" value="100"/></div>
+      <div>116 <input type="text" name="min116" value="-100"/> <input type="text" name="max116" value="100"/></div>
+      <div>117 <input type="text" name="min117" value="-100"/> <input type="text" name="max117" value="100"/></div>
+      <div>#points <input type="text" name="npoints" value="2000"/></div>
+      <input type="submit" value="Update"/>
+      <input type="reset" value="Reset!" />
+    </form>
+  </div>
+  <div id="stats" style="display: table-cell; padding: 10px;"></div>
+  <div style="display: table-cell">
+    <input id="csv" type="submit" value="csv"/>
+  </div>
+  <div id="g" style="width: 50%"></div>
+<script type="text/javascript" src="main.js"></script>
+</body>
+</html>
