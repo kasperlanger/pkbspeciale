@@ -1,9 +1,11 @@
 data = []
 rawdata = [[],[]]
-graphs = [{x:"115",y:"116"},{x:"115",y:"117"},{x:"116",y:"117"}]
+graphs = [{x:"IL1B",y:"IFNG"},{x:"IL1B",y:"IL1B+IFNG"},{x:"IFNG",y:"IL1B+IFNG"}]
 percChart = null;
-cols = ["115", "116", "117"]
+cols = ["IL1B", "IFNG", "IL1B+IFNG"]
 state = $.query.keys
+zscore = parseFloat state.zscore
+#console.debug "zscore", zscore
 
 $ -> #on load set form values to values in the query 
   for k,v of state
@@ -12,17 +14,35 @@ $ -> #on load set form values to values in the query
   for name in ["primary", "secondary"]
     sel = $("<select name='#{name}'/>")
     $("#dataselectcontainer").append sel
-    for file in ["none", "betaceller301011", "biorep1ins-1", "biorep2ins-1"]
+    for file in ["none", "betacelle161111", "INS1rep161111", "INS2rep161111"]
       selected = if state[name] == file then "selected" else "" 
       $("<option value='#{file}' #{selected}>#{file}</option>").appendTo sel
     
 filterdata = ->
   $("#stats").empty()
   for i in [0,1]
-    data[i] = rawdata[i]
+    fd = rawdata[i]
     for col in cols 
       [min,max] = [state["min"+col], state["max"+col]]
-      data[i] = (row for row in data[i] when row[col] > min && row[col] < max)
+      fd = (row for row in fd when row[col] > min && row[col] < max)
+          
+    # filter zscore
+    zd = []
+    notzd = fd
+    console.debug fd.length
+    for col in cols 
+      {mean,stdvar} = calcMeanAndStdVar(rawdata[i], col)
+      [zlow, zhigh] = [mean - stdvar * zscore, mean + stdvar * zscore]
+      nextnotzd = []
+      console.debug zd.length, notzd.length
+      for row in notzd
+        if row[col] < zlow || row[col] > zhigh
+          zd.push row
+        else
+          nextnotzd.push row
+      notzd = nextnotzd
+    data[i] = zd
+
     $("<div>#{data[i].length} / #{rawdata[i].length} (#{new Number(100 * data[i].length / rawdata[i].length).toFixed(2)}%)</div>").appendTo $("#stats")
   
 updatePercentiles = ->
@@ -41,20 +61,21 @@ updatePercentiles = ->
 updateMainGraphs = ->
   maxPoints = parseFloat($("input[name='npoints']").val())
   for i in [0,1]
-    for g in graphs
-      gdata = ({x:row[g.x], y:row[g.y], name: row.id} for row in data[i])
-      g.chart.series[i].setData(gdata.slice(0, maxPoints));
+     for g in graphs
+       gdata = ({x:row[g.x], y:row[g.y], name: row.id} for row in data[i])
+       g.chart.series[i].setData(gdata.slice(0, maxPoints))
     
 updateFilter = ->
   filterdata()
   createPercChart()
   updatePercentiles()
   updateMainGraphs()
+  createZScore()
 
 $('#csv').click (ev) ->
   ev.preventDefault()
   win = window.open('','name')
-  win.document.write("<pre>Protein Group Accessions,115/114,116/114,117/114,Intensity,\n")
+  win.document.write("<pre>Protein Group Accessions,115/114,116/114,117/114,Intensity,Sequence\n")
   for row in data[0]
     tokens = row.id.split(',')
     accession = tokens[0].split(";")[0]
@@ -62,10 +83,18 @@ $('#csv').click (ev) ->
   win.document.write "</pre>"
 
 $.when($.get("/#{state.primary}.csv"), $.get("/#{state.secondary}.csv")).done (r1, r2) ->
+  console.debug "got data"
   for data,i in [r1[2].responseText, r2[2].responseText]
-    rawdata[i] = (for line,j in data.split('\r') when j > 0
-      items = line.split(',');
-      {"id": line, "115":Math.log(parseFloat(items[1])), "116": Math.log(parseFloat(items[2])), "117": Math.log(parseFloat(items[3]))})
+    for line,j in data.split('\r') when j > 0
+      items = line.split(',')
+      rawdata[i].push
+        id: line
+        "IL1B": Math.log items[1]
+        "IFNG": Math.log items[2]
+        "IL1B+IFNG": Math.log items[3]
+        intensity: parseFloat items[4]
+    console.debug "data0", rawdata[0][0]
+
     rawdata[i].sort( () ->  Math.random() - 0.5 ) #shuffle hack
   updateFilter()
 
@@ -89,10 +118,10 @@ for g,i in graphs
            text: g.x + ' - ' + g.y
         xAxis: 
            title: 
-              text: "#{g.x}/114"
+              text: "#{g.x}/control"
         yAxis: 
            title: 
-             text: "#{g.y}/114"
+             text: "#{g.y}/control"
         tooltip: 
            formatter: () -> @point.name
         credits: { enabled: false },
@@ -105,8 +134,76 @@ for g,i in graphs
 
      g.chart = new Highcharts.Chart(options)
      g.chart.yAxis[0].addPlotBand({from: 0, to: 100, color: 'rgba(255,0,0,0.3)'})
-     g.chart.xAxis[0].addPlotBand({from: 0, to: 100, color: 'rgba(0,0,255,0.3)'})
+     g.chart.xAxis[0].addPlotBand({from: 0, to: 100, color: 'rgba(0,0,255,0.3)'})     
 
+calcMeanAndStdVar = (d, key) ->
+  sum = 0
+  for val in d
+    sum += val[key]
+  mean = sum / d.length
+  sqsum = 0
+  for val in d 
+    sqsum += (mean - val[key]) * (mean - val[key])
+  {mean: mean, stdvar: Math.sqrt (sqsum / d.length)}
+
+createZScore = ->
+  mean = []
+  std = []
+  negstd = []
+  
+  step = 100000
+  quantized = []
+  for val in rawdata[0]
+    bucket = quantized[parseInt(val.intensity / step)]
+    if bucket then bucket.push val else quantized[parseInt(val.intensity / step)] = [val]
+  
+  for bucket,i in quantized
+    if bucket
+      sum = 0
+      sqsum = 0
+      for val in bucket
+        sum += val["IL1B"]
+      m = sum / bucket.length
+      for val in bucket
+        sqsum += (m - val["IL1B"]) * (m - val["IL1B"])
+      
+      mean.push 
+        x: i * step
+        y: m 
+      std.push 
+        x: i * step
+        y: m + Math.sqrt (sqsum / bucket.length)
+      negstd.push
+        x: i * step
+        y: m - Math.sqrt (sqsum / bucket.length)
+    
+  percChart = new Highcharts.Chart
+    chart: 
+       renderTo: ($('<div class="chart"/>').appendTo('body'))[0]
+       zoomType: 'none'
+       defaultSeriesType: 'scatter'
+    title: 
+       text: 'Mean and standard deviation as a function of intensity'
+    yAxis:
+      title:
+        text: "IL1B"
+    xAxis:
+      min: 0
+      max: 5000000
+      title:
+        text: "intensity"
+    credits: { enabled: false }
+    series: [{color: 'rgba(255,255,255,0.3)', data: ({y:val["IL1B"],x:val.intensity} for val in rawdata[0]), name: "samples"},
+             {color: 'rgb(0,0,255)', type: "line", data: mean, name: "mean"}
+             {color: 'rgb(255,0,0)', type: "line", data: std, name: "mean+stddev"}
+             {color: 'rgb(255,0,0)', type: "line", data: negstd, name: "mean-stddev"}
+            ]
+    plotOptions: 
+     scatter: 
+        marker: 
+           radius: 2
+
+  
 createPercChart = ->
   percChart?.destroy() 
   percChart = new Highcharts.Chart
@@ -116,6 +213,6 @@ createPercChart = ->
     title: 
        text: 'percentiles'
     xAxis: 
-       categories: ['115/114', '116/114', '117/114']
+       categories: ['IL1B/control', 'IFNG/control', 'IL1B+IFNG/control']
     credits: { enabled: false }
   
